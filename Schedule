@@ -1,0 +1,454 @@
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Scanner;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+public class Schedule {
+    // Scanner object to read user input
+    private static final Scanner input = new Scanner(System.in);
+
+    // Maximum number of events that can be stored
+    private static final int maxEvents = 100;
+
+    // Current number of events
+    private static int size = 0;
+
+    // Arrays to store event details
+    private static final String[][] eventName = new String[maxEvents][];
+    private static final String[][] eventDay = new String[maxEvents][];
+    private static final String[][] eventTime = new String[maxEvents][];
+    private static final String[][] eventLink = new String[maxEvents][];
+
+    // List to store ScheduledExecutorService objects for each event
+    private static final List<ScheduledExecutorService> eventSchedulers = new ArrayList<>();
+
+    // Time limit for event notifications in seconds
+    private static final long TIME_LIMIT = 60;
+
+    public static void main(String[] args) {
+        // Variable to store the user's choice
+        int choice;
+
+        // Start the notification thread
+        startNotificationThread();
+
+        // Keep displaying the main menu until the user chooses to exit
+        do {
+            // Display the main menu
+            displayMainMenu();
+
+            // Get the user's choice
+            choice = getIntInput();
+
+            // Perform an action based on the user's choice
+            switch (choice) {
+                case 1:
+                    // Input a new event
+                    inputEvent();
+                    break;
+                case 2:
+                    // View upcoming and past events
+                    viewEvents();
+                    break;
+                case 3:
+                    // Search for an event
+                    searchForEvent();
+                    break;
+                case 4:
+                    // Edit an event
+                    editEvent();
+                    break;
+                case 5:
+                    // Exit the program
+                    System.out.println("---------------------------------------------");
+                    System.out.println("Exiting...");
+                    break;
+                default:
+                    // The user entered an invalid choice
+                    System.out.println("---------------------------------------------");
+                    System.out.println("Invalid choice. Please enter a valid option.");
+                    break;
+            }
+
+            // Check for expired events
+            checkExpiredEvents();
+        } while (choice != 5); // Continue until the user chooses to exit
+
+        // Close the scanner
+        input.close();
+    }
+
+    private static void startNotificationThread() {
+        Thread notificationThread = new Thread(() -> {
+            while (true) {
+                // Check for expired events every 10 seconds
+                try {
+                    TimeUnit.SECONDS.sleep(10);
+                    checkExpiredEvents();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        notificationThread.setDaemon(true);
+        notificationThread.start();
+    }
+
+    private static void displayMainMenu() {
+        // Display the main menu
+        System.out.println("\n---------------------------------------------");
+        System.out.println("             VIRTUAL EVENTS PLANNER");
+        System.out.println("---------------------------------------------");
+        System.out.println("               [1] Input Event");
+        System.out.println("               [2] View Events");
+        System.out.println("               [3] Search for Event");
+        System.out.println("               [4] Edit Event");
+        System.out.println("               [5] Exit");
+        System.out.println("_____________________________________________");
+        System.out.print("Enter your choice: ");
+    }
+
+    private static void checkExpiredEvents() {
+        // Get the current date and time
+        LocalDateTime now = LocalDateTime.now();
+
+        // Loop through all events
+        for (int i = 0; i < size; i++) {
+            // Parse the event's date and time
+            LocalDateTime eventDateTime = LocalDateTime.parse(eventDay[i][0] + " " + eventTime[i][0],
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+
+            // If the current date and time is after the event's date and time
+            if (now.isAfter(eventDateTime)) {
+                // If the event has a ScheduledExecutorService
+                if (i < eventSchedulers.size()) {
+                    // Shutdown the ScheduledExecutorService
+                    eventSchedulers.get(i).shutdown();
+                }
+            }
+        }
+    }
+
+    // Method to get integer input from user
+    private static int getIntInput() {
+        // Loop until an integer is entered
+        while (!input.hasNextInt()) {
+            System.out.println("Invalid input. Please enter a number.");
+            input.next();
+        }
+        // Return the integer entered by the user
+        return input.nextInt();
+    }
+
+    // Method to input a new event
+    private static void inputEvent() {
+        String dateInput;
+        String timeInput;
+        System.out.println("\n---------------------------------------------");
+        System.out.println("                    EVENT");
+        System.out.println("---------------------------------------------");
+        System.out.print("Input Event Name: ");
+        input.nextLine();
+        // Store the event name
+        eventName[size] = new String[]{input.nextLine()};
+        // Loop until a valid date is entered
+        do {
+            System.out.print("Input Day of Event (YYYY-MM-DD): ");
+            dateInput = input.next();
+            if (dateInput.length() != 10) {
+                System.out.println( "---------------------------------------------");
+                System.out.println("   Invalid date format. Please try again.");
+                System.out.println("---------------------------------------------");
+            }
+        } while (dateInput.length() != 10);
+        // Store the event date
+        eventDay[size] = new String[]{dateInput};
+        // Loop until a valid time is entered
+        do {
+            System.out.print("Input Time of Event (HH:mm): ");
+            timeInput = input.next();
+            if (timeInput.length() != 5) {
+                System.out.println("---------------------------------------------");
+                System.out.println("   Invalid time format. Please try again.");
+                System.out.println("---------------------------------------------");
+            }
+        } while (timeInput.length() != 5);
+        // Store the event time
+        eventTime[size] = new String[]{timeInput};
+        System.out.print("Input Zoom/Google/Microsoft Meeting Link: ");
+        input.nextLine();
+        // Store the event link
+        eventLink[size] = new String[]{input.nextLine()};
+        System.out.println("---------------------------------------------");
+        System.out.println("         Event added successfully!" );
+        System.out.println("---------------------------------------------");
+
+        // Notify the event start
+        notifyEventStart(eventName[size][0], eventDay[size][0], eventTime[size][0], eventLink[size][0]);
+        // Increase the size of the events
+        size++;
+    }
+
+    // Method to view upcoming and past events
+    private static void viewEvents() {
+        // Sort the events by date
+        sortEventsByDate();
+        
+        LocalDateTime now = LocalDateTime.now();
+        
+        System.out.println("\n---------------------------------------------");
+        System.out.println("                UPCOMING EVENTS");
+        System.out.println("---------------------------------------------");
+
+        boolean upcomingEventsFound = false;
+        boolean pastEventsFound = false;
+
+        // Loop through all events
+        for (int i = 0; i < size; i++) {
+            LocalDateTime eventDateTime = LocalDateTime.parse(eventDay[i][0] + " " + eventTime[i][0],
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+
+            if (eventDateTime.isAfter(now)) {
+                upcomingEventsFound = true;
+                System.out.println("                Event " + (i + 1));
+                System.out.println("=============================================");
+                System.out.println("Event Name: " + eventName[i][0]);
+                System.out.println("Day of Event: " + eventDay[i][0]);
+                System.out.println("Time of Event: " + eventTime[i][0]);
+                System.out.println("Meeting Link: " + eventLink[i][0]);
+                System.out.println("---------------------------------------------");
+            } else {
+                pastEventsFound = true;
+            }
+        }
+
+        if (!upcomingEventsFound) {
+            System.out.println("No upcoming events.");
+        }
+
+        if (pastEventsFound) {
+            System.out.println("\n---------------------------------------------");
+            System.out.println("                 PAST EVENTS");
+            System.out.println("---------------------------------------------");
+
+            // Loop through all events
+            for (int i = 0; i < size; i++) {
+                LocalDateTime eventDateTime = LocalDateTime.parse(eventDay[i][0] + " " + eventTime[i][0],
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+
+                if (eventDateTime.isBefore(now)) {
+                    System.out.println("                Event " + (i + 1));
+                    System.out.println("=============================================");
+                    System.out.println("Event Name: " + eventName[i][0]);
+                    System.out.println("Day of Event: " + eventDay[i][0]);
+                    System.out.println("Time of Event: " + eventTime[i][0]);
+                    System.out.println("Meeting Link: " + eventLink[i][0]);
+                    System.out.println("---------------------------------------------");
+                }
+            }
+        }
+    }
+
+    // Method to sort events by date
+    private static void sortEventsByDate() {
+        // Combine all event details into a single array
+        String[][] combinedEvents = new String[size][4];
+
+        // Loop through all events
+        for (int i = 0; i < size; i++) {
+            combinedEvents[i][0] = eventName[i][0];
+            combinedEvents[i][1] = eventDay[i][0];
+            combinedEvents[i][2] = eventTime[i][0];
+            combinedEvents[i][3] = eventLink[i][0];
+        }
+
+        // Sort the combined events array by date
+        Arrays.sort(combinedEvents, (event1, event2) -> {
+            LocalDateTime dateTime1 = LocalDateTime.parse(event1[1] + " " + event1[2], DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+            LocalDateTime dateTime2 = LocalDateTime.parse(event2[1] + " " + event2[2], DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+            return dateTime1.compareTo(dateTime2);
+        });
+
+        // Update the original event details arrays with the sorted events
+        for (int i = 0; i < size; i++) {
+            eventName[i][0] = combinedEvents[i][0];
+            eventDay[i][0] = combinedEvents[i][1];
+            eventTime[i][0] = combinedEvents[i][2];
+            eventLink[i][0] = combinedEvents[i][3];
+        }
+    }
+
+    // Method to search for an event
+    private static void searchForEvent() {
+        System.out.print("Enter Event Name or Date to Search: ");
+        // Get the search query from the user
+        String searchQuery = input.next();
+        // Search for events matching the query
+        searchEvents(searchQuery);
+    }
+
+    // Method to search for events
+    private static void searchEvents(String query) {
+        System.out.println("\n---------------------------------------------");
+        System.out.println("                SEARCH RESULTS");
+        System.out.println("---------------------------------------------");
+
+        boolean found = false;
+        // Loop through all events
+        for (int i = 0; i < size; i++) {
+            // If the event name or date contains the query
+            if (eventName[i][0].contains(query) || eventDay[i][0].contains(query)) {
+                System.out.println("=============================================");
+                System.out.println("                Event " + (i + 1));
+                System.out.println("=============================================");
+                System.out.println("Event Name: " + eventName[i][0]);
+                System.out.println("Day of Event: " + eventDay[i][0]);
+                System.out.println("Time of Event: " + eventTime[i][0]);
+                found = true;
+            }
+        }
+
+        // If no matching events were found
+        if (!found) {
+            System.out.println("No matching events found.");
+        }
+
+        System.out.println("---------------------------------------------");
+    }
+
+    // Method to edit an existing event
+    private static void editEvent() {
+        // Prompt the user to enter the number of the event to edit
+        System.out.print("Enter the number of the event to edit: ");
+        int eventNumber = getIntInput();
+        // Check if the entered event number is valid
+        if (eventNumber > 0 && eventNumber <= size) {
+            // Display the edit menu
+            System.out.println("\n---------------------------------------------");
+            System.out.println("               EDIT EVENT");
+            System.out.println("---------------------------------------------");
+            System.out.println("            [1] Edit Event Name");
+            System.out.println("            [2] Edit Day of Event");
+            System.out.println("            [3] Edit Time of Event");
+            System.out.println("            [4] Edit Event Link");
+            System.out.println("            [5] Back to Menu");
+            System.out.println("---------------------------------------------");
+
+            // Prompt the user to enter their choice
+            System.out.print("Enter your choice: ");
+            int editChoice = getIntInput();
+
+            // Perform the appropriate action based on the user's choice
+            switch (editChoice) {
+                case 1:
+                    // Edit the event name
+                    System.out.print("Enter new Event Name: ");
+                    input.nextLine();
+                    eventName[eventNumber - 1] = new String[]{input.nextLine()};
+                    System.out.println("---------------------------------------------");
+                    System.out.println("      Event Name updated successfully!");
+                    System.out.println("---------------------------------------------");
+                    break;
+                case 2:
+                    // Edit the event date
+                    String newDate;
+                    do {
+                        System.out.print("Enter new Day of Event (YYYY-MM-DD): ");
+                        newDate = input.next();
+                        if (newDate.length() != 10) {
+                            System.out.println( "---------------------------------------------");
+                            System.out.println("   Invalid date format. Please try again.");
+                            System.out.println("---------------------------------------------");
+                        }
+                    } while (newDate.length() != 10);
+                    eventDay[eventNumber - 1] = new String[]{newDate};
+                    System.out.println("---------------------------------------------");
+                    System.out.println("     Day of Event updated successfully!");
+                    System.out.println("---------------------------------------------");
+                    break;
+                case 3:
+                    // Edit the event time
+                    String newTime;
+                    do {
+                        System.out.print("Enter new Time of Event (HH:mm): ");
+                        newTime = input.next();
+                        if (newTime.length() != 5) {
+                            System.out.println("---------------------------------------------");
+                            System.out.println("   Invalid time format. Please try again.");
+                            System.out.println("---------------------------------------------");
+                        }
+                    } while (newTime.length() != 5);
+                    eventTime[eventNumber - 1] = new String[]{newTime};
+                    System.out.println("---------------------------------------------");
+                    System.out.println("    Time of Event updated successfully!");
+                    System.out.println("---------------------------------------------");
+                    break;
+                case 4:
+                    // Edit the event link
+                    System.out.print("Enter new Meeting Link: ");
+                    input.nextLine();
+                    eventLink[eventNumber - 1] = new String[]{input.nextLine()};
+                    System.out.println("---------------------------------------------");
+                    System.out.println("   Meeting Link updated successfully!");
+                    System.out.println("---------------------------------------------");
+                    break;
+                case 5:
+                    // Go back to the main menu
+                    break;
+                default:
+                    // Invalid choice
+                    System.out.println("---------------------------------------------");
+                    System.out.println(" Invalid choice. Please enter a valid option.");
+                    break;
+            }
+        } else {
+            // Invalid event number
+            System.out.println("------------------------------------------------------------");
+            System.out.println(" Invalid event number. Please enter a valid event number.");
+        }
+    }
+
+    private static void notifyEventStart(String eventName, String eventDay, String eventTime, String eventLink) {
+        LocalDateTime now = LocalDateTime.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    
+        LocalDateTime eventDateTime = LocalDateTime.parse(eventDay + " " + eventTime, formatter);
+        long minutesUntilEvent = java.time.Duration.between(now, eventDateTime).toMinutes();
+    
+        if (minutesUntilEvent >= 5) {
+            // Schedule notification 5 minutes before the event
+            ScheduledExecutorService schedulerBefore = Executors.newScheduledThreadPool(1);
+            schedulerBefore.schedule(() -> notifyUser(eventName, eventDay, eventTime, eventLink, "starting soon"),
+                    minutesUntilEvent - 5, TimeUnit.MINUTES);
+            eventSchedulers.add(schedulerBefore);
+        }
+    
+        if (minutesUntilEvent > 0) {
+            // Schedule notification at the event start time
+            ScheduledExecutorService schedulerExact = Executors.newScheduledThreadPool(1);
+            schedulerExact.schedule(() -> notifyUser(eventName, eventDay, eventTime, eventLink, "starting now"),
+                    minutesUntilEvent, TimeUnit.MINUTES);
+            eventSchedulers.add(schedulerExact);
+        }
+    }
+    
+    private static void notifyUser(String eventName, String eventDay, String eventTime, String eventLink, String status) {
+        System.out.println("/n---------------------------------------------");
+        System.out.println("---------------------------------------------");
+        System.out.println("              NOTIFICATION");
+        System.out.println("---------------------------------------------");
+        System.out.println("Event '" + eventName + "' on " + eventDay + " at " + eventTime +
+                " is " + status + "!");
+        System.out.println("Meeting Link: " + eventLink);
+        System.out.println("---------------------------------------------");
+        System.out.println("---------------------------------------------");
+
+        // Call the method that displays the main menu
+        displayMainMenu();
+    }
+}
